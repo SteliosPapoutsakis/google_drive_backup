@@ -1,0 +1,28 @@
+#!/usr/bin/python3
+"""
+backs up input file(s) to google drive account
+all files are backed up under "senior_year" dir
+-dir flag creates a path for files to live within "senior_year dir
+@Author Stelios Papoutsakis
+@date 12/29/19
+""" 
+import sys
+import argparse
+def parseargs():
+	parrser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
+	parrser.add_argument('-d', '--directory', dest='google_path', action='store', help='path files will be stored in google drive senoir_year dir')
+	parrser.add_argument('file_names', metavar='FILE_PATH', nargs='+', help='path of file(s) to be backed up')
+	return parrser.parse_args()
+
+
+if __name__ == "__main__":
+	results=parseargs()
+	path = 'senior_year'
+	files = results.file_names
+	if results.google_path is not None:
+		path += results.google_path
+	print(files, path)
+
+	
+	
+
