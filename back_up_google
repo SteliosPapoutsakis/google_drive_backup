@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/home/stelios/side_projects/back_up_google_drive/google_drive_back_up/bin/python3
 """
 backs up input file(s) to google drive account
 all files are backed up under "senior_year" dir
@@ -8,6 +8,16 @@ all files are backed up under "senior_year" dir
 """ 
 import sys
 import argparse
+import os
+import pickle
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+def authenticate():
+	cred = None
+	if os.path.isfile('token.pickle'):
+		with open('token.pickle', 'rb') as token:
+           		creds = pickle.load(token)
 def parseargs():
 	parrser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
 	parrser.add_argument('-d', '--directory', dest='google_path', action='store', help='path files will be stored in google drive senoir_year dir')
