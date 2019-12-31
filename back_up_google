@@ -13,11 +13,27 @@ import pickle
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+
 def authenticate():
+	"""
+	authenticate connection to google drive based on SCOPE varibale
+	returns a serice object that is ready for exicution
+	"""
 	cred = None
+	SCOPES = ('https://www.googleapis.com/auth/drive.metadata.readonly')
 	if os.path.isfile('token.pickle'):
 		with open('token.pickle', 'rb') as token:
-           		creds = pickle.load(token)
+           		cred = pickle.load(token)
+	if not cred or not cred.valid:
+		if cred and creds.expired and cred.refresh_token:
+			cred.refresh(Request())
+		else:
+			flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+			cred = flow.run_local_server(port=0)
+		with open('token.pickle', 'wb') as token:
+			pickle.dump(cred, token)
+	return  build('drive', 'v3', credentials=cred)
+		
 def parseargs():
 	parrser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
 	parrser.add_argument('-d', '--directory', dest='google_path', action='store', help='path files will be stored in google drive senoir_year dir')
@@ -31,8 +47,7 @@ if __name__ == "__main__":
 	files = results.file_names
 	if results.google_path is not None:
 		path += results.google_path
-	print(files, path)
-
+	authenticate()
 	
 	
 
