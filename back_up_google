@@ -10,9 +10,59 @@ import sys
 import argparse
 import os
 import pickle
+from apiclient.http import MediaFileUpload
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+def get_folder_id(dir, service):
+	"""
+	gets the id of the folder specified in the dir variable
+	"""
+	page_token = None
+	results = []
+	while True:
+		response=service.files().list(q="mimeType='application/vnd.google-apps.folder' and name='{}'".format(dir),spaces='drive',fields="files(parents, name, id)",  pageToken=page_token).execute()
+		results += response.get('files', [])
+		page_token = response.get('nextPageToken', None)
+		if page_token is None:
+			break
+	# if more than one result found prompt user to see which directory to use
+	folder_id = None
+	if len(results) > 1:
+		parent_name = {}
+		for f in range(len(results)):
+			name = ""
+			parent = results[f].get('parents')[0]
+			while 'MyDrive' not in name:
+				res = service.files().get(fileId=parent, fields="files(parents, name)").execute()
+				name = '/' + res['name'] + name 
+				parent = res['parents']
+			parent_name[f] = name
+		print('There seems to be more than one directory with that name, please specify (by typing the number next to the parent directory name) which directory to use')
+		count = 0
+		for name in [f['name'] for f in results]:
+			print('{}. {}/{}'.format(count, parent_name[count], name))
+			count += 1
+		exit()
+	else:
+		folder_id = results[0].get('id')
+	print(folder_id)	
+	exit()
+def add_file(file, dir, service):
+	"""
+	adds a file to google drive mydrive
+	dir is directory where file should be placed
+	"""
+	if dir is not None:
+		get_folder_id(dir, service)
+	if os.path.isfile(file):
+		file_metadata = {'name': os.path.basename(os.path.realpath(file))}
+		media = MediaFileUpload(file)
+		file_id = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+		print('file "{}" was uploaded under file id "{}"'.format(file, file_id['id']))
+
+	else:
+		print('specified file name "{}" is not a file'.format(file))
 
 def authenticate():
 	"""
@@ -20,34 +70,38 @@ def authenticate():
 	returns a serice object that is ready for exicution
 	"""
 	cred = None
-	SCOPES = ('https://www.googleapis.com/auth/drive.metadata.readonly')
-	if os.path.isfile('token.pickle'):
-		with open('token.pickle', 'rb') as token:
+	SCOPES = ('https://www.googleapis.com/auth/drive')
+	file_dir = os.path.dirname(os.path.realpath(__file__))
+	token_path = os.path.join(file_dir, 'token.pickle')
+	if os.path.isfile(token_path):
+		with open(token_path, 'rb') as token:
            		cred = pickle.load(token)
 	if not cred or not cred.valid:
-		if cred and creds.expired and cred.refresh_token:
+		if cred and cred.expired and cred.refresh_token:
 			cred.refresh(Request())
 		else:
-			flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+			flow = InstalledAppFlow.from_client_secrets_file(os.path.join(file_dir, 'credentials.json'), SCOPES)
 			cred = flow.run_local_server(port=0)
-		with open('token.pickle', 'wb') as token:
+		with open(token_path, 'wb') as token:
 			pickle.dump(cred, token)
 	return  build('drive', 'v3', credentials=cred)
 		
 def parseargs():
-	parrser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
-	parrser.add_argument('-d', '--directory', dest='google_path', action='store', help='path files will be stored in google drive senoir_year dir')
-	parrser.add_argument('file_names', metavar='FILE_PATH', nargs='+', help='path of file(s) to be backed up')
-	return parrser.parse_args()
+	parser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
+	parser.add_argument('-d', '--directory', dest='google_path', action='store', help='name of directory that file will be stored at')
+	parser.add_argument('file_names', metavar='FILE_PATH', nargs='+', help='path of file(s) to be backed up')
+	return parser.parse_args()
 
 
 if __name__ == "__main__":
-	results=parseargs()
-	path = 'senior_year'
-	files = results.file_names
-	if results.google_path is not None:
-		path += results.google_path
-	authenticate()
+    results=parseargs()
+    path = None
+    files = results.file_names
+    path = results.google_path
+    service = authenticate()
+    # loop through every file specified
+    for file in files:
+        add_file(file, path, service)
 	
 	
 
