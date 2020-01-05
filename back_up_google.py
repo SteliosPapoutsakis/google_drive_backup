@@ -103,8 +103,13 @@ def authenticate():
 			cred.refresh(Request())
 		else:
 			logging.debug('no cred found, asking for permission')
-			flow = InstalledAppFlow.from_client_secrets_file(os.path.join(file_dir, 'credentials.json'), SCOPES)
-			cred = flow.run_local_server(port=0)
+			if os.path.isfile(os.path.join(file_dir, 'credentials.json')):
+				flow = InstalledAppFlow.from_client_secrets_file(os.path.join(file_dir, 'credentials.json'), SCOPES)
+				cred = flow.run_local_server(port=0)
+			else:
+				logging.error('couldn\'t find "credentials.json", this is needed in order to authenticate users google drive. Please obtain this file and place it in the same directory as this script')
+
+				exit(1)
 		with open(token_path, 'wb') as token:
 			pickle.dump(cred, token)
 	return  build('drive', 'v3', credentials=cred)
