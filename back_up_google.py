@@ -1,4 +1,3 @@
-#!/home/stelios/side_projects/back_up_google_drive/google_drive_back_up/bin/python3
 """
 backs up input file(s) to google drive account
 all files are backed up under "senior_year" dir
