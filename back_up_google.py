@@ -14,6 +14,7 @@ from apiclient.http import MediaFileUpload
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+logger = logging.getLogger('gdrive')
 def get_file_id(dir_id, file_name, service):
 	"""
 	returns the file id of a file in a certian directory
@@ -30,9 +31,9 @@ def get_file_id(dir_id, file_name, service):
 	for f in results:
 		if f['name'] == file_name:
 			file_id = f['id']
-			logging.debug('file was found, returning file id, "{}"'.format(file_id))
+			logger.debug('file was found, returning file id, "{}"'.format(file_id))
 			return file_id
-	logging.debug('file was not found, to create new file')
+	logger.debug('file was not found, to create new file')
 	return None
 
 def get_folder_id(dir, service):
@@ -40,14 +41,14 @@ def get_folder_id(dir, service):
 	gets the id of the folder specified in the dir variable
 	will prompt user for input if multiple results are specified
 	"""
-	logging.debug('getting folder id for folder to place file')
+	logger.debug('getting folder id for folder to place file')
 	page_token = None
 	result_to_pick = 0
 	results = []
 	base_dir = None
 	if '/' in dir:
 		base_dir = os.path.basename(dir)
-		logging.debug('found "/" in directory, will search based on name "{}"'.format(base_dir))
+		logger.debug('found "/" in directory, will search based on name "{}"'.format(base_dir))
 	# finding all directories with the name in either dir or base_dir
 	while True:
 		response=service.files().list(q="mimeType='application/vnd.google-apps.folder' and name='{}'".format(dir if not base_dir else base_dir),spaces='drive',
@@ -59,7 +60,7 @@ def get_folder_id(dir, service):
 	# if more than one result found prompt user to see which directory to use
 	folder_id = None
 	if len(results) > 1:
-		logging.debug('more than one results where found, attempting to limit results')
+		logger.debug('more than one results where found, attempting to limit results')
 		parent_name = {}
 		for f in range(len(results)):
 			name = '/'+results[f]['name'] 
@@ -73,7 +74,7 @@ def get_folder_id(dir, service):
 			if dir in name:
 				parent_name[f] = name
 			else:
-				logging.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
+				logger.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
 				del results[f]
 		# if results where filter based on full path, skip user prompt	
 		if len(parent_name.keys()) > 1:
@@ -96,11 +97,11 @@ def get_folder_id(dir, service):
 				except ValueError:
 					print('unable to understand "{}"'.format(num))
 	else:
-		logging.error('dir "{}" was not found in google drive account'.format(dir))
+		logger.error('dir "{}" was not found in google drive account'.format(dir))
 		exit(1)
 	folder_id  = results[result_to_pick]['id'] 
-	logging.debug('folder_directory picked was "{}"'.format(results[result_to_pick]['name']))
-	logging.debug('folder_id found was "{}"'.format(folder_id))
+	logger.debug('folder_directory picked was "{}"'.format(results[result_to_pick]['name']))
+	logger.debug('folder_id found was "{}"'.format(folder_id))
 	return folder_id 
 
 
@@ -141,20 +142,20 @@ def authenticate():
 	file_dir = os.path.dirname(os.path.realpath(__file__))
 	token_path = os.path.join(file_dir, 'token.pickle')
 	if os.path.isfile(token_path):
-		logging.debug('token file was found')
+		logger.debug('token file was found')
 		with open(token_path, 'rb') as token:
            		cred = pickle.load(token)
 	if not cred or not cred.valid:
 		if cred and cred.expired and cred.refresh_token:
-			logging.debug('cred is not valid')
+			logger.debug('cred is not valid')
 			cred.refresh(Request())
 		else:
-			logging.debug('no cred found, asking for permission')
+			logger.debug('no cred found, asking for permission')
 			if os.path.isfile(os.path.join(file_dir, 'credentials.json')):
 				flow = InstalledAppFlow.from_client_secrets_file(os.path.join(file_dir, 'credentials.json'), SCOPES)
 				cred = flow.run_local_server(port=0)
 			else:
-				logging.error('couldn\'t find "credentials.json", this is needed in order to authenticate users google drive. Please obtain this file and place it in the same directory as this script')
+				logger.error('couldn\'t find "credentials.json", this is needed in order to authenticate users google drive. Please obtain this file and place it in the same directory as this script')
 
 				exit(1)
 		with open(token_path, 'wb') as token:
@@ -178,7 +179,7 @@ if __name__ == "__main__":
 	logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 	if results.debug:
 		logging.basicConfig(level=logging.DEBUG)
-		logging.debug('debug is active')
+		logger.debug('debug is active')
 	service = authenticate()
 	# loop through every file specified
 	for file in files:
