@@ -14,12 +14,35 @@ from apiclient.http import MediaFileUpload
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+def get_file_id(dir_id, file_name, service):
+	"""
+	returns the file id of a file in a certian directory
+	retunrs none if file not found
+	"""
+	page_token = None
+	results = []
+	while True:
+		response = service.files().list(q="'{}' in parents and mimeType != 'application/vnd.google-apps.folder'".format(dir_id), fields="files(name, id)", pageToken=page_token).execute()
+		results += response.get('files', [])
+		page_token = response.get('nextPageToken')
+		if not page_token:
+			break
+	for f in results:
+		if f['name'] == file_name:
+			file_id = f['id']
+			logging.debug('file was found, returning file id, "{}"'.format(file_id))
+			return file_id
+	logging.debug('file was not found, to create new file')
+	return None
+
 def get_folder_id(dir, service):
 	"""
 	gets the id of the folder specified in the dir variable
+	will prompt user for input if multiple results are specified
 	"""
 	logging.debug('getting folder id for folder to place file')
 	page_token = None
+	result_to_pick = 0
 	results = []
 	base_dir = None
 	if '/' in dir:
@@ -59,28 +82,52 @@ def get_folder_id(dir, service):
 			for name in [f['name'] for f in results]:
 				print('{}. {}'.format(count, parent_name[count]))
 				count += 1
-		else:
-			folder_id = results[0].get('id')
-	elif len(results) > 0:
-		folder_id = results[0].get('id')
+			input_recived = False
+			# gettng user input
+			while not input_recived:
+				num = input()
+				try:
+					num = int(num)
+					if num < len(results):
+						result_to_pick = num
+						input_recived = True
+					else:
+						print('The number specified "{}" is greater than amount of options'.format(num))
+				except ValueError:
+					print('unable to understand "{}"'.format(num))
 	else:
 		logging.error('dir "{}" was not found in google drive account'.format(dir))
 		exit(1)
-	print(folder_id)	
-	exit()
+	folder_id  = results[result_to_pick]['id'] 
+	logging.debug('folder_directory picked was "{}"'.format(results[result_to_pick]['name']))
+	logging.debug('folder_id found was "{}"'.format(folder_id))
+	return folder_id 
+
+
 def add_file(file, dir, service):
 	"""
 	adds a file to google drive mydrive
 	dir is directory where file should be placed
 	"""
-	if dir is not None:
-		get_folder_id(dir, service)
 	if os.path.isfile(file):
-		file_metadata = {'name': os.path.basename(os.path.realpath(file))}
+		folder_id = None
+		if dir is not None:
+			folder_id = get_folder_id(dir, service)
+		# check if file already exists
+		file_name = os.path.basename(file)
+		file_id = get_file_id(folder_id, file_name, service) 
 		media = MediaFileUpload(file)
-		file_id = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-		print('file "{}" was uploaded under file id "{}"'.format(file, file_id['id']))
-
+		# if file was not found, create it
+		if not file_id:
+			file_metadata = {'name': file_name}
+			# specify folder
+			if folder_id:
+				file_metadata['parents'] = [folder_id]
+			file_id = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+			print('file "{}" was created and uploaded under file id "{}"'.format(file, file_id['id']))
+		else:
+			service.files().update(fileId=file_id, media_body=media).execute()
+			print('file "{}" was updated and uploaded under file id "{}"'.format(file, file_id))
 	else:
 		print('specified file name "{}" is not a file'.format(file))
 
@@ -117,7 +164,7 @@ def authenticate():
 def parseargs():
 	parser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
 	parser.add_argument('-v', '--verbose', dest='debug', action='store_true', help='extra debug information')
-	parser.add_argument('-d', '--directory', dest='google_path', action='store', help='name of directory that file will be stored at')
+	parser.add_argument('-d', '--directory', dest='google_path_or_name', action='store', help='name of or path to directory in user\'s google account that the file will be stored at')
 	parser.add_argument('file_names', metavar='FILE_PATH', nargs='+', help='path of file(s) to be backed up')
 	return parser.parse_args()
 
@@ -126,7 +173,7 @@ if __name__ == "__main__":
 	results=parseargs()
 	path = None
 	files = results.file_names
-	path = results.google_path
+	path = results.google_path_or_name
 	# get rid of google warning messages
 	logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 	if results.debug:
