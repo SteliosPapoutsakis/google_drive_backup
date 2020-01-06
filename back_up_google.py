@@ -1,7 +1,6 @@
 """
 backs up input file(s) to google drive account
-all files are backed up under "senior_year" dir
--dir flag creates a path for files to live within "senior_year dir
+-dir flag creates a path for files to live 
 @Author Stelios Papoutsakis
 @date 12/29/19
 """ 
@@ -67,7 +66,7 @@ def get_folder_id(dir, service):
 			parent = results[f].get('parents')[0]
 			# build full path for each entry in results
 			while parent:
-				res = service.files().get(fileId=parent, fields="*").execute()
+				res = service.files().get(fileId=parent, fields="parents,name").execute()
 				name = '/' + res['name'] + name 
 				parent = res.get('parents', (None,))[0]
 			# used to elimate results if a full path is specified
@@ -116,7 +115,8 @@ def add_file(file, dir, service):
 			folder_id = get_folder_id(dir, service)
 		# check if file already exists
 		file_name = os.path.basename(file)
-		file_id = get_file_id(folder_id, file_name, service) 
+		# root is used if directory is not specified
+		file_id = get_file_id(folder_id if folder_id else 'root', file_name, service) 
 		media = MediaFileUpload(file)
 		# if file was not found, create it
 		if not file_id:
@@ -125,10 +125,10 @@ def add_file(file, dir, service):
 			if folder_id:
 				file_metadata['parents'] = [folder_id]
 			file_id = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-			print('file "{}" was created and uploaded under file id "{}"'.format(file, file_id['id']))
+			print('file "{}" was created and uploaded under directory "{}"'.format(file, dir if dir else 'MyDrive'))
 		else:
 			service.files().update(fileId=file_id, media_body=media).execute()
-			print('file "{}" was updated and uploaded under file id "{}"'.format(file, file_id))
+			print('file "{}" under directory "{}" was updated'.format(file, dir if dir else 'MyDrive'))
 	else:
 		print('specified file name "{}" is not a file'.format(file))
 
