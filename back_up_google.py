@@ -14,6 +14,92 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 logger = logging.getLogger('gdrive')
+
+def list_dir(dir_name, service, file_only=False, dir_only=False):
+	"""lists all the files/dirs in a google drive directory"""
+	if not file_only or not dir_only:
+		# defining query
+		dir_id = get_folder_id(dir_name, service)
+		query_str = "'{}' in parents".format(dir_id) 
+		if file_only:
+			query_str = "mimeType != 'application/vnd.google-apps.folder' and '{}' in parents".format(dir_id)
+		elif dir_only:
+			query_str = "mimeType = 'application/vnd.google-apps.folder and '{}' in parents".format(dir_id)		
+		results = []
+		page_token = None
+		while True:
+			response = service.files().list(q=query_str, fields="files(name,mimeType)",pageToken=page_token).execute()
+			results += response.get('files', [])
+			page_token = response.get('nextPageToken')
+			if not page_token:
+				break
+		if len(results) < 1:
+			print("No results found in directory \"{}\"".format(dir_name))
+		else:
+			# seperating dirs and files for readability
+			dirs = []
+			files = []
+			for r in results:
+				if r['mimeType'] == 'application/vnd.google-apps.folder':
+					dirs.append(r['name'])
+				else:
+					files.append(r['name'])
+			if len(dirs) > 0:
+				print("Directoires found:")
+				for d in dirs:
+					print(d)
+				print()
+			if len(files) > 0:
+				print('Files found:')
+				for f in files:
+					print(f)
+			
+	else:
+		logging.ERROR('please only select either file_only or dir_only, not both')
+
+def prompt_user(results, dir_file_name):
+	"""
+	prompts user to select a certian file or dir if multiple results are found
+	function also creates full path to those file/dir
+	"""
+	result_to_pick = 0 
+	parent_name = {}
+	for f in range(len(results)):
+		name = '/'+results[f]['name'] 
+		parent = results[f].get('parents')[0]
+		# build full path for each entry in results
+		while parent:
+			res = service.files().get(fileId=parent, fields="parents,name").execute()
+			name = '/' + res['name'] + name 
+			parent = res.get('parents', (None,))[0]
+		# used to elimate results if a full path is specified
+		if dir_file_name in name:
+			parent_name[f] = name
+		else:
+			logger.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
+			del results[f]
+	# if results where filter based on full path, skip user prompt	
+	if len(parent_name.keys()) > 1:
+		print('There seems to be more than one directory with that name, please specify (by typing the number next to the parent directory name) which directory to use')
+		count = 0
+		for name in [f['name'] for f in results]:
+			print('{}. {}'.format(count, parent_name[count]))
+			count += 1
+		input_recived = False
+		# gettng user input
+		while not input_recived:
+			num = input()
+			try:
+				num = int(num)
+				if num < len(results):
+					result_to_pick = num
+					input_recived = True
+				else:
+					print('The number specified "{}" is greater than amount of options'.format(num))
+			except ValueError:
+				print('unable to understand "{}"'.format(num))
+	return result_to_pick
+
 def get_file_id(dir_id, file_name, service):
 	"""
 	returns the file id of a file in a certian directory
@@ -60,42 +146,8 @@ def get_folder_id(dir, service):
 	folder_id = None
 	if len(results) > 1:
 		logger.debug('more than one results where found, attempting to limit results')
-		parent_name = {}
-		for f in range(len(results)):
-			name = '/'+results[f]['name'] 
-			parent = results[f].get('parents')[0]
-			# build full path for each entry in results
-			while parent:
-				res = service.files().get(fileId=parent, fields="parents,name").execute()
-				name = '/' + res['name'] + name 
-				parent = res.get('parents', (None,))[0]
-			# used to elimate results if a full path is specified
-			if dir in name:
-				parent_name[f] = name
-			else:
-				logger.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
-				del results[f]
-		# if results where filter based on full path, skip user prompt	
-		if len(parent_name.keys()) > 1:
-			print('There seems to be more than one directory with that name, please specify (by typing the number next to the parent directory name) which directory to use')
-			count = 0
-			for name in [f['name'] for f in results]:
-				print('{}. {}'.format(count, parent_name[count]))
-				count += 1
-			input_recived = False
-			# gettng user input
-			while not input_recived:
-				num = input()
-				try:
-					num = int(num)
-					if num < len(results):
-						result_to_pick = num
-						input_recived = True
-					else:
-						print('The number specified "{}" is greater than amount of options'.format(num))
-				except ValueError:
-					print('unable to understand "{}"'.format(num))
-	else:
+		result_to_pick = prompt_user(results, dir if not base_dir else base_dir)
+	elif len(results) < 1:
 		logger.error('dir "{}" was not found in google drive account'.format(dir))
 		exit(1)
 	folder_id  = results[result_to_pick]['id'] 
@@ -166,13 +218,19 @@ def parseargs():
 	parser = argparse.ArgumentParser(description='given a list of files, backs them up into my google drive')
 	parser.add_argument('-v', '--verbose', dest='debug', action='store_true', help='extra debug information')
 	parser.add_argument('-d', '--directory', dest='google_path_or_name', action='store', help='name of or path to directory in user\'s google account that the file will be stored at')
-	parser.add_argument('file_names', metavar='FILE_PATH', nargs='+', help='path of file(s) to be backed up')
-	return parser.parse_args()
+	parser.add_argument('-l' '--list', dest='google_path_or_name_list', action='store', help='list files in for a name of or path to directory in user\'s google account')
+	parser.add_argument('--fileonly', dest='fileonly', action='store_true', help='lists only files, to be used with -l/--list command')
+	parser.add_argument('--directoryonly', dest='dironly', action='store_true', help='lists only directoies, to be used with -l/--list command')
+	parser.add_argument('file_names', metavar='FILE_PATH', nargs='*', help='path of file(s) to be backed up')
+	parsed_args = parser.parse_args()
+	# need to specify either file_names or list command
+	if not parsed_args.google_path_or_name_list and not parsed_args.file_names:
+		logger.error('list command not used and files to back up not specified, please see usage with --help')
+	return parsed_args
 
 
 if __name__ == "__main__":
 	results=parseargs()
-	path = None
 	files = results.file_names
 	path = results.google_path_or_name
 	# get rid of google warning messages
@@ -180,10 +238,15 @@ if __name__ == "__main__":
 	if results.debug:
 		logging.basicConfig(level=logging.DEBUG)
 		logger.debug('debug is active')
-	service = authenticate()
-	# loop through every file specified
-	for file in files:
-		add_file(file, path, service)
+	if files or results.google_path_or_name_list:
+		service = authenticate()
+		if files:
+			# loop through every file specified
+			for file in files:
+				add_file(file, path, service)
+		if results.google_path_or_name_list:
+			list_dir(results.google_path_or_name_list, service, file_only=results.fileonly, dir_only=results.dironly)
+	
 	
 	
 
