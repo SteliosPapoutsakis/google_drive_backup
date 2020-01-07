@@ -14,6 +14,26 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 logger = logging.getLogger('gdrive')
+def full_path(name, parent_id):
+	"""returns the full path of file/directory given a id"""
+	# if parent is not none, get the next parent name
+	path = ''
+	if parent_id:
+		res = service.files().get(fileId=parent_id, fields="parents,name").execute()
+		path = full_path(res['name'], res.get('parents', (None,))[0])
+	return os.path.join(path, name)
+
+def list_files(query_param, query_fields):
+	"""returns a list of files fields"""
+	results = []
+	page_token = None
+	while True:
+		response = service.files().list(q=query_param,spaces='drive',fields=query_fields,pageToken=page_token).execute()
+		results += response.get('files', [])
+		page_token = response.get('nextPageToken')
+		if not page_token:
+			break
+	return results
 
 def list_dir(dir_name, service, file_only=False, dir_only=False):
 	"""lists all the files/dirs in a google drive directory"""
@@ -24,15 +44,8 @@ def list_dir(dir_name, service, file_only=False, dir_only=False):
 		if file_only:
 			query_str = "mimeType != 'application/vnd.google-apps.folder' and '{}' in parents".format(dir_id)
 		elif dir_only:
-			query_str = "mimeType = 'application/vnd.google-apps.folder and '{}' in parents".format(dir_id)		
-		results = []
-		page_token = None
-		while True:
-			response = service.files().list(q=query_str, fields="files(name,mimeType)",pageToken=page_token).execute()
-			results += response.get('files', [])
-			page_token = response.get('nextPageToken')
-			if not page_token:
-				break
+			query_str = "mimeType = 'application/vnd.google-apps.folder' and '{}' in parents".format(dir_id)		
+		results = list_files(query_str, "files(name,mimeType)")
 		if len(results) < 1:
 			print("No results found in directory \"{}\"".format(dir_name))
 		else:
@@ -55,7 +68,7 @@ def list_dir(dir_name, service, file_only=False, dir_only=False):
 					print(f)
 			
 	else:
-		logging.ERROR('please only select either file_only or dir_only, not both')
+		logger.error('please only select either file_only or dir_only, not both')
 
 def prompt_user(results, dir_file_name):
 	"""
@@ -65,13 +78,7 @@ def prompt_user(results, dir_file_name):
 	result_to_pick = 0 
 	parent_name = {}
 	for f in range(len(results)):
-		name = '/'+results[f]['name'] 
-		parent = results[f].get('parents')[0]
-		# build full path for each entry in results
-		while parent:
-			res = service.files().get(fileId=parent, fields="parents,name").execute()
-			name = '/' + res['name'] + name 
-			parent = res.get('parents', (None,))[0]
+		name = full_path(results[f]['name'] ,results[f].get('parents')[0])
 		# used to elimate results if a full path is specified
 		if dir_file_name in name:
 			parent_name[f] = name
@@ -106,13 +113,7 @@ def get_file_id(dir_id, file_name, service):
 	retunrs none if file not found
 	"""
 	page_token = None
-	results = []
-	while True:
-		response = service.files().list(q="'{}' in parents and mimeType != 'application/vnd.google-apps.folder'".format(dir_id), fields="files(name, id)", pageToken=page_token).execute()
-		results += response.get('files', [])
-		page_token = response.get('nextPageToken')
-		if not page_token:
-			break
+	results = list_files("'{}' in parents and mimeType != 'application/vnd.google-apps.folder'".format(dir_id), "files(name, id)")
 	for f in results:
 		if f['name'] == file_name:
 			file_id = f['id']
@@ -129,19 +130,13 @@ def get_folder_id(dir, service):
 	logger.debug('getting folder id for folder to place file')
 	page_token = None
 	result_to_pick = 0
-	results = []
 	base_dir = None
 	if '/' in dir:
 		base_dir = os.path.basename(dir)
 		logger.debug('found "/" in directory, will search based on name "{}"'.format(base_dir))
 	# finding all directories with the name in either dir or base_dir
-	while True:
-		response=service.files().list(q="mimeType='application/vnd.google-apps.folder' and name='{}'".format(dir if not base_dir else base_dir),spaces='drive',
-			fields="files(parents, name, id)",  pageToken=page_token).execute()
-		results += response.get('files', [])
-		page_token = response.get('nextPageToken', None)
-		if page_token is None:
-			break
+	results = list_files("mimeType='application/vnd.google-apps.folder' and name='{}'".format(dir if not base_dir else base_dir), "files(parents, name, id)")
+	
 	# if more than one result found prompt user to see which directory to use
 	folder_id = None
 	if len(results) > 1:
@@ -225,8 +220,9 @@ def parseargs():
 	parsed_args = parser.parse_args()
 	# need to specify either file_names or list command
 	if not parsed_args.google_path_or_name_list and not parsed_args.file_names:
-		logger.error('list command not used and files to back up not specified, please see usage with --help')
+		parser.error('must define either files to back up or directory to list using -l, see --help for more info')
 	return parsed_args
+
 
 
 if __name__ == "__main__":
@@ -238,14 +234,13 @@ if __name__ == "__main__":
 	if results.debug:
 		logging.basicConfig(level=logging.DEBUG)
 		logger.debug('debug is active')
-	if files or results.google_path_or_name_list:
-		service = authenticate()
-		if files:
-			# loop through every file specified
-			for file in files:
-				add_file(file, path, service)
-		if results.google_path_or_name_list:
-			list_dir(results.google_path_or_name_list, service, file_only=results.fileonly, dir_only=results.dironly)
+	service = authenticate()
+	if files:
+		# loop through every file specified
+		for file in files:
+			add_file(file, path, service)
+	if results.google_path_or_name_list:
+		list_dir(results.google_path_or_name_list, service, file_only=results.fileonly, dir_only=results.dironly)
 	
 	
 	
