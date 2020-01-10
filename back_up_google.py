@@ -14,6 +14,29 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 logger = logging.getLogger('gdrive')
+
+
+def create_folder(name, service, parent_dir_name):
+	"""
+	creates a new folder in google drive area based parent directory name
+	I made this its own function because the "add_folder" function actually uploads file data
+	while this only creates an empty directory
+	"""
+	# default parent id is root
+	parent_folder_id = "root"
+	if parent_dir_name:
+		parent_folder_id = get_folder_id(parent_dir_name, service)
+	folder_id = get_file_id(parent_folder_id, name, service)
+	# if the var folder_id is None, that means a folder doesn't exist in that directory and we can make the folder
+	if not folder_id:
+		file_metadata = {'name': name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_folder_id]}
+		file_id = service.files().create(body=file_metadata, fields='id').execute()
+		print('directory "{}" was created under directory "{}"'.format(name, parent_dir_name))
+	# else a file/directory already exists with that name, so do not create
+	else:
+		print('There is already a file with the name "{}" under directory "{}", directory creation failed!'.format(name, parent_dir_name))
+
+
 def full_path(name, parent_id):
 	"""returns the full path of file/directory given a id"""
 	# if parent is not none, get the next parent name
@@ -78,13 +101,14 @@ def prompt_user(results, dir_file_name):
 	result_to_pick = 0 
 	parent_name = {}
 	for f in range(len(results)):
-		name = full_path(results[f]['name'] ,results[f].get('parents')[0])
+		name = full_path(results[f]['name'],results[f].get('parents', ['root'])[0])
 		# used to elimate results if a full path is specified
 		if dir_file_name in name:
 			parent_name[f] = name
 		else:
 			logger.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
-			del results[f]
+			# removed delete statment as editing the list during iteration wasn't the best :)
+			results[f] = None
 	# if results where filter based on full path, skip user prompt	
 	if len(parent_name.keys()) > 1:
 		print('There seems to be more than one directory with that name, please specify (by typing the number next to the parent directory name) which directory to use')
@@ -107,13 +131,16 @@ def prompt_user(results, dir_file_name):
 				print('unable to understand "{}"'.format(num))
 	return result_to_pick
 
-def get_file_id(dir_id, file_name, service):
+def get_file_id(dir_id, file_name, service, no_directory=False):
 	"""
 	returns the file id of a file in a certian directory
 	retunrs none if file not found
 	"""
+	query_str = "'{}' in parents".format(dir_id)
+	if no_directory:
+		query_str += " and mimeType != 'application/vnd.google-apps.folder'"
 	page_token = None
-	results = list_files("'{}' in parents and mimeType != 'application/vnd.google-apps.folder'".format(dir_id), "files(name, id)")
+	results = list_files(query_str, "files(name, id)")
 	for f in results:
 		if f['name'] == file_name:
 			file_id = f['id']
@@ -151,9 +178,9 @@ def get_folder_id(dir, service):
 	return folder_id 
 
 
-def add_file(file, dir, service):
+def add_file(file, dir, service, is_directory=False):
 	"""
-	adds a file to google drive mydrive
+	adds a file and its contents google drive mydrive
 	dir is directory where file should be placed
 	"""
 	if os.path.isfile(file):
@@ -214,12 +241,13 @@ def parseargs():
 	parser.add_argument('-v', '--verbose', dest='debug', action='store_true', help='extra debug information')
 	parser.add_argument('-d', '--directory', dest='google_path_or_name', action='store', help='name of or path to directory in user\'s google account that the file will be stored at')
 	parser.add_argument('-l' '--list', dest='google_path_or_name_list', action='store', help='list files in for a name of or path to directory in user\'s google account')
+	parser.add_argument('-f' '--folder', dest='folder_name', action='store', help='creates a folder in the directory specified with "-d", otherwise createds in google drive root directory')
 	parser.add_argument('--fileonly', dest='fileonly', action='store_true', help='lists only files, to be used with -l/--list command')
 	parser.add_argument('--directoryonly', dest='dironly', action='store_true', help='lists only directoies, to be used with -l/--list command')
 	parser.add_argument('file_names', metavar='FILE_PATH', nargs='*', help='path of file(s) to be backed up')
 	parsed_args = parser.parse_args()
 	# need to specify either file_names or list command
-	if not parsed_args.google_path_or_name_list and not parsed_args.file_names:
+	if not parsed_args.google_path_or_name_list and not parsed_args.file_names and not parsed_args.folder_name:
 		parser.error('must define either files to back up or directory to list using -l, see --help for more info')
 	return parsed_args
 
@@ -229,6 +257,7 @@ if __name__ == "__main__":
 	results=parseargs()
 	files = results.file_names
 	path = results.google_path_or_name
+	folder_name = results.folder_name
 	# get rid of google warning messages
 	logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 	if results.debug:
@@ -241,7 +270,9 @@ if __name__ == "__main__":
 			add_file(file, path, service)
 	if results.google_path_or_name_list:
 		list_dir(results.google_path_or_name_list, service, file_only=results.fileonly, dir_only=results.dironly)
-	
-	
+
+	if folder_name:
+		create_folder(folder_name, service, path)
+
 	
 
