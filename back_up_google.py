@@ -68,7 +68,7 @@ def list_dir(dir_name, service, file_only=False, dir_only=False):
 			query_str = "mimeType != 'application/vnd.google-apps.folder' and '{}' in parents".format(dir_id)
 		elif dir_only:
 			query_str = "mimeType = 'application/vnd.google-apps.folder' and '{}' in parents".format(dir_id)		
-		results = list_files(query_str, "files(name,mimeType)")
+		results = list_files(query_str, "files(name,mimeType,modifiedTime)")
 		if len(results) < 1:
 			print("No results found in directory \"{}\"".format(dir_name))
 		else:
@@ -77,18 +77,18 @@ def list_dir(dir_name, service, file_only=False, dir_only=False):
 			files = []
 			for r in results:
 				if r['mimeType'] == 'application/vnd.google-apps.folder':
-					dirs.append(r['name'])
+					dirs.append((r['name'], r['modifiedTime']))
 				else:
-					files.append(r['name'])
+					files.append((r['name'], r['modifiedTime']))
 			if len(dirs) > 0:
 				print("Directoires found:")
 				for d in dirs:
-					print(d)
+					print(d[0], d[1])
 				print()
 			if len(files) > 0:
 				print('Files found:')
 				for f in files:
-					print(f)
+					print(f[0], f[1])
 			
 	else:
 		logger.error('please only select either file_only or dir_only, not both')
