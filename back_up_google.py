@@ -113,7 +113,7 @@ def prompt_user(results, dir_file_name):
 	if len(parent_name.keys()) > 1:
 		print('There seems to be more than one directory with that name, please specify (by typing the number next to the parent directory name) which directory to use')
 		count = 0
-		for name in [f['name'] for f in results]:
+		for name in [f['name'] for f in results if f]:
 			print('{}. {}'.format(count, parent_name[count]))
 			count += 1
 		input_recived = False
