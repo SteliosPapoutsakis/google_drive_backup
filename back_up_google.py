@@ -104,6 +104,7 @@ def prompt_user(results, dir_file_name):
 		name = full_path(results[f]['name'],results[f].get('parents', ['root'])[0])
 		# used to elimate results if a full path is specified
 		if dir_file_name in name:
+			result_to_pick = f
 			parent_name[f] = name
 		else:
 			logger.debug('full path "{}" doesn\'t match dir "{}", skipping'.format(name, dir))
@@ -168,7 +169,7 @@ def get_folder_id(dir, service):
 	folder_id = None
 	if len(results) > 1:
 		logger.debug('more than one results where found, attempting to limit results')
-		result_to_pick = prompt_user(results, dir if not base_dir else base_dir)
+		result_to_pick = prompt_user(results, dir)
 	elif len(results) < 1:
 		logger.error('dir "{}" was not found in google drive account'.format(dir))
 		exit(1)
